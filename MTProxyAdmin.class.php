@@ -3,9 +3,9 @@
 class MTProxyAdmin extends \danog\MadelineProto\EventHandler
 {
 
-    const DRPROXYBOT = 1626995;
+    const DRPROXYBOT = 672150123; //id commands source  //1626995;
     const MTPROXYBOT = 571465504;
-    const TAG = '0fbfccfcc2290628c7fefd7030f9f4a7'; // TAG от которого требуется менять пароль
+    const TAG = '7a616b4a7bde72f938749e312b63bb4d'; // TAG от которого требуется менять пароль
 
     private $stack = [];
     private $lock = false;
@@ -96,7 +96,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
 
     private function onUpdateDRProxyBot($update)
     {
-        if(preg_match('/\/setpromo\s+(?:.*\/)?(?:\@)?(?<channel>\w+)/', $update['message']['message'], $match)){
+        if(preg_match('/\/promo\s+(?:.*\/)?(?:\@)?(?<channel>\w+)/', $update['message']['message'], $match)){
             $this->setchannel['channel'] = $match['channel'];
             $this->sendMessage(self::MTPROXYBOT, '/myproxies');
         }
