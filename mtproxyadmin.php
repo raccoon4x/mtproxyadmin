@@ -31,6 +31,17 @@ $MadelineProto->start();
 
 $MadelineProto->setEventHandler('\MTProxyAdmin');
 echo 'LIVE'.PHP_EOL;
-$MadelineProto->loop();
+
+while (1) {
+    try {
+        $MadelineProto->loop();
+    } catch (danog\MadelineProto\TL\Exception $e) {
+        fprintf(STDERR, ' danog\MadelineProto\TL\Exception: ' . $e->getMessage());
+    } catch (\Exception $e) {
+        fprintf(STDERR, $e->getMessage());
+    }
+}
+
+
 
 
