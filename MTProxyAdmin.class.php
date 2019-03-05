@@ -3,7 +3,7 @@
 class MTProxyAdmin extends \danog\MadelineProto\EventHandler
 {
 
-    const DRPROXYBOT = 672150123; //id commands source  //1626995;
+    const ADMINS = [672150123, 1626995];
     const MTPROXYBOT = 571465504;
     const TAG = '7a616b4a7bde72f938749e312b63bb4d'; // TAG от которого требуется менять пароль
 
@@ -12,6 +12,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
 
     private $setchannel = [];
 
+    private $from_id;
     private $message;
 
     public function __construct($MadelineProto)
@@ -27,6 +28,12 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
     public function onLoop()
     {
         \danog\MadelineProto\Logger::log("Working...");
+        if($this->hasTasks()) {
+            if ($this->getCurrentCommand() === 'promo' && $this->getCurrentStep() === 0) {
+                $this->incStep();
+                $this->sendMessage(self::MTPROXYBOT, '/myproxies');
+            }
+        }
     }
 
     public function onUpdateNewChannelMessage($update)
@@ -41,28 +48,27 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
             return;
         }
         // Игнорируем если не можем определить от кого сообщение
-        if(!isset($update['message']['from_id'])){
+        if(!isset($update['message']['from_id'], $update['message']['message'])){
             return;
         }
-        if(isset($update['message']['message'])){
-            $this->message = $update['message']['message'];
-        }
+        $this->message = $update['message']['message'];
+        $this->from_id = $update['message']['from_id'];
         if ($update['message']['from_id'] === self::MTPROXYBOT){
-            if(!empty($this->setchannel)){
-                $this->setPromo($update);
-                if(strpos($update['message']['message'], 'Promoted channel:')!==false) {
-                    $bytes = strpos($update['message']['message'], 'Promoted channel: n/a.') !== false ?
-                        $this->findProxyButtonByHash($update, 'Set promotion') :
-                        $this->findProxyButtonByHash($update, 'Edit promotion');
-                    if($bytes) {
-                        $botCallbackAnswer = $this->messages->getBotCallbackAnswer(
-                            [
-                                'game' => false,
-                                'peer' => self::MTPROXYBOT,
-                                'msg_id' => $update['message']['id'],
-                                'data' => base64_decode($bytes),
-                            ]
-                        );
+            if($this->hasTasks()) {
+                if ($this->getCurrentCommand() === 'promo') {
+                    $this->searchProxy($update);
+                    if (strpos($update['message']['message'], 'Promoted channel:') !== false) {
+                        if ($this->getCurrentStep() === 2) {
+                            $this->forwardMessage($this->getCurrentTaskUser(), self::MTPROXYBOT, [$update['message']['id']]);
+                            $this->deleteCurrentTask();
+                            return;
+                        }
+                        $bytes = strpos($update['message']['message'], 'Promoted channel: n/a.') !== false
+                            ? $this->findButtonWithText($update, 'Set promotion')
+                            : $this->findButtonWithText($update, 'Edit promotion');
+                        if ($bytes) {
+                            $this->clickOnButton($update['message']['id'], $bytes);
+                        }
                     }
                 }
             }
@@ -74,8 +80,6 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
      */
     public function onUpdateNewMessage($update)
     {
-        //\danog\MadelineProto\Logger::log(json_encode($update, JSON_PRETTY_PRINT));
-
         // Игнорировать исходящие сообщения
         if (isset($update['message']['out']) && $update['message']['out']) {
             return;
@@ -85,10 +89,11 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
             return;
         }
         $this->message = $update['message']['message'];
-        if ($update['message']['from_id'] === self::DRPROXYBOT) {
+        $this->from_id = $update['message']['from_id'];
+        if ($this->isAdmin()) {
             $this->onUpdateDRProxyBot($update);
         }
-        if ($update['message']['from_id'] === self::MTPROXYBOT) {
+        if ($this->from_id === self::MTPROXYBOT) {
             $this->newMessageMTProxyBot($update);
         }
     }
@@ -98,20 +103,43 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
     {
         if(preg_match('/\/promo\s+(?:.*\/)?(?:\@)?(?<channel>\w+)/', $update['message']['message'], $match)){
             $this->setchannel['channel'] = $match['channel'];
-            $this->sendMessage(self::MTPROXYBOT, '/myproxies');
+            $task = $this->prepareTask($match['channel']);
+            $this->addTask($task);
+            //$this->sendMessage(self::MTPROXYBOT, '/myproxies');
+        }
+        if($this->assertText('/tasks')){
+            if(!empty($this->stack)) {
+                $this->sendMessage($this->from_id, json_encode($this->stack, JSON_PRETTY_PRINT));
+            }else{
+                $this->sendMessage($this->from_id, 'Tasks is empty...');
+            }
+        }
+        if($this->assertText('/wipe')){
+            $this->stack = [];
+            $this->sendMessage($this->from_id, 'Tasks is clear...');
         }
     }
 
     private function newMessageMTProxyBot($update)
     {
-        if(!empty($this->setchannel)){
-            $this->setPromo($update);
-            if(strpos($update['message']['message'], 'This allows you to set up a promoted channel for your proxy', 0)===0) {
-                $this->sendMessage(self::MTPROXYBOT, '@'.$this->setchannel['channel'], $update['message']['id']);
-            }
-            if(strpos($update['message']['message'], 'New promoted channel has been set', 0)===0){
-                $this->forwardMessage(self::DRPROXYBOT, $update['message']['from_id'], [$update['message']['id']]);
-                $this->setchannel = [];
+        if($this->hasTasks()) {
+            if ($this->getCurrentCommand() === 'promo') {
+                $this->searchProxy($update);
+                if (strpos($update['message']['message'], 'This allows you to set up a promoted channel for your proxy', 0)
+                    === 0) {
+                    $this->sendMessage(
+                        self::MTPROXYBOT, '@' . $this->getCurrentTaskChannel(), $update['message']['id']
+                    );
+                }
+                if (strpos($update['message']['message'], 'New promoted channel has been set', 0) === 0) {
+                    $this->incStep();
+                    $this->forwardMessage($this->getCurrentTaskUser(), $update['message']['from_id'], [$update['message']['id']]);
+                    //$this->deleteCurrentTask();
+                }
+                if ($this->assertText('Sorry, this username doesn\'t point to a channel.')) {
+                    $this->forwardMessage($this->getCurrentTaskUser(), $update['message']['from_id'], [$update['message']['id']]);
+                    $this->deleteCurrentTask();
+                }
             }
         }
     }
@@ -175,14 +203,30 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
         }
     }
 
-    private function findProxyButtonByHash($update, $hash)
+    private function clickOnButton($msg_id, $bytes)
+    {
+        try{
+            $this->messages->getBotCallbackAnswer(
+                [
+                    'game' => false,
+                    'peer' => self::MTPROXYBOT,
+                    'msg_id' => $msg_id,
+                    'data' => base64_decode($bytes),
+                ]
+            );
+        }catch (\danog\MadelineProto\RPCErrorException $e){
+            \danog\MadelineProto\Logger::log($e);
+        }
+    }
+
+    private function findButtonWithText($update, $text)
     {
         $update = json_encode($update, JSON_PRETTY_PRINT);
         $update = json_decode($update, true);
         $rows = $update['message']['reply_markup']['rows'];
         foreach ($rows as $key){
             foreach ($key['buttons'] as $button){
-                if(strpos($button['text'], $hash) !== false || strpos($button['text'], '»') !== false){
+                if(strpos($button['text'], $text) !== false){
                     // Если нашли кнопку с нужным текстом, то кликаем на нее, в случае, если есть кнопка листать дальше, листаем
                     return $button['data']['bytes'];
                 }
@@ -191,24 +235,53 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
         return false;
     }
 
-    private function setPromo($update)
+    private function searchProxy($update)
     {
         if(strpos($update['message']['message'], 'Here is the list of all proxies you created:', 0)===0){
-            $bytes = $this->findProxyButtonByHash($update, self::TAG);
-            if($bytes){
-                $botCallbackAnswer = $this->messages->getBotCallbackAnswer(
-                    [
-                        'game' => false,
-                        'peer' => self::MTPROXYBOT,
-                        'msg_id' => $update['message']['id'],
-                        'data' => base64_decode($bytes),
-                    ]
-                );
+            $bytes = $this->findButtonWithText($update, self::TAG);
+            if($bytes) {
+                $this->clickOnButton($update['message']['id'], $bytes);
             }else{
-                $this->sendMessage(self::DRPROXYBOT, 'Can\'t find tag '.self::TAG);
-                $this->setchannel = [];
+                $bytes = $this->findButtonWithText($update, '»');
+                if($bytes){
+                    $this->clickOnButton($update['message']['id'], $bytes);
+                }else {
+                    $this->sendMessage($this->getCurrentTaskUser(), 'Can\'t find tag ' . self::TAG);
+                    $this->deleteCurrentTask();
+                }
             }
         }
+    }
+
+
+    /**
+     * Проверяет, от имеет ли человек устанавливать промо канал.
+     *
+     * @return bool
+     */
+    private function isAdmin(): bool
+    {
+        return in_array($this->from_id, self::ADMINS, true) ? true : false;
+    }
+
+
+    /**
+     * Подготавливает task, временный метод.
+     * Готовые таски в будущем должен присылать @DRProxyBot
+     *
+     * @param $channel
+     *
+     * @return string
+     */
+    private function prepareTask($channel): string
+    {
+        $task = [
+            'command'   => 'promo',
+            'channel'   => $channel,
+            'from_id'   => $this->from_id,
+            'tag'       => self::TAG
+        ];
+        return json_encode($task);
     }
 
     /**
@@ -225,7 +298,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
         }
     }
 
-    private function isValidTask($item)
+    private function isValidTask($item): bool
     {
         $arr = json_decode($item, true);
         if(json_last_error()!==0){
@@ -293,6 +366,19 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
     private function getCurrentStep(): int
     {
         return current($this->stack)['step'];
+    }
+
+    /**
+     * @return string
+     */
+    private function getCurrentTaskUser():string
+    {
+        return current($this->stack)['from_id'];
+    }
+
+    private function getCurrentTaskChannel()
+    {
+        return current($this->stack)['channel'];
     }
 
     private function incStep()
