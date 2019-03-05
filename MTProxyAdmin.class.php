@@ -5,7 +5,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
 
     const ADMINS = [672150123, 1626995];
     const MTPROXYBOT = 571465504;
-    const TAG = '7a616b4a7bde72f938749e312b63bb4d'; // TAG от которого требуется менять пароль
+    const TAG = '7a616b4a7bde72f938749e312b63bb4d'; // TAG от которого требуется менять пароль по умолчанию
 
     private $stack = [];
     private $lock = false;
@@ -58,6 +58,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
                 if ($this->getCurrentCommand() === 'promo') {
                     $this->searchProxy($update);
                     if (strpos($update['message']['message'], 'Promoted channel:') !== false) {
+                        // TODO: устранить баг, залипает, если установить тот же самый канал, то бот не редактирует сообщение.
                         if ($this->getCurrentStep() === 2) {
                             $this->forwardMessage($this->getCurrentTaskUser(), self::MTPROXYBOT, [$update['message']['id']]);
                             $this->deleteCurrentTask();
@@ -101,9 +102,17 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
 
     private function onUpdateDRProxyBot($update)
     {
-        if(preg_match('/\/promo\s+(?:.*\/)?(?:\@)?(?<channel>\w+)/', $update['message']['message'], $match)){
+        if(preg_match('/\/promo\s+(?:.*\/)?(?:\@)?(?<channel>\w+)(?:\s+)?(?<tag>\w+)?/', $update['message']['message'], $match)){
+            $tag = self::TAG;
+            if(isset($match['tag'])){
+                if(strlen($match['tag']) !== 32) {
+                    $this->sendMessage($this->from_id, 'Error! The third argument TAG must be 32 characters long.');
+                    return;
+                }
+                $tag = $match['tag'];
+            }
             $this->setchannel['channel'] = $match['channel'];
-            $task = $this->prepareTask($match['channel']);
+            $task = $this->prepareTask($match['channel'], $tag);
             $this->addTask($task);
             //$this->sendMessage(self::MTPROXYBOT, '/myproxies');
         }
@@ -238,7 +247,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
     private function searchProxy($update)
     {
         if(strpos($update['message']['message'], 'Here is the list of all proxies you created:', 0)===0){
-            $bytes = $this->findButtonWithText($update, self::TAG);
+            $bytes = $this->findButtonWithText($update, $this->getCurrentTaskTag());
             if($bytes) {
                 $this->clickOnButton($update['message']['id'], $bytes);
             }else{
@@ -246,7 +255,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
                 if($bytes){
                     $this->clickOnButton($update['message']['id'], $bytes);
                 }else {
-                    $this->sendMessage($this->getCurrentTaskUser(), 'Can\'t find tag ' . self::TAG);
+                    $this->sendMessage($this->getCurrentTaskUser(), 'Can\'t find tag ' . $this->getCurrentTaskTag());
                     $this->deleteCurrentTask();
                 }
             }
@@ -270,16 +279,17 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
      * Готовые таски в будущем должен присылать @DRProxyBot
      *
      * @param $channel
+     * @param $tag
      *
      * @return string
      */
-    private function prepareTask($channel): string
+    private function prepareTask($channel, $tag): string
     {
         $task = [
             'command'   => 'promo',
             'channel'   => $channel,
             'from_id'   => $this->from_id,
-            'tag'       => self::TAG
+            'tag'       => $tag
         ];
         return json_encode($task);
     }
@@ -379,6 +389,11 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
     private function getCurrentTaskChannel()
     {
         return current($this->stack)['channel'];
+    }
+
+    private function getCurrentTaskTag()
+    {
+        return current($this->stack)['tag'];
     }
 
     private function incStep()
