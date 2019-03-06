@@ -6,6 +6,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
     const ADMINS = [672150123, 1626995];
     const MTPROXYBOT = 571465504;
     const TAG = '7a616b4a7bde72f938749e312b63bb4d'; // TAG от которого требуется менять пароль по умолчанию
+    const EXPIRE_TIME = 30; // Время в секундах, через сколько сгорает таск
 
     private $stack = [];
     private $lock = false;
@@ -32,6 +33,9 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
             if ($this->getCurrentCommand() === 'promo' && $this->getCurrentStep() === 0) {
                 $this->incStep();
                 $this->sendMessage(self::MTPROXYBOT, '/myproxies');
+            }
+            if($this->getCurrentTaskTimeDiff() > self::EXPIRE_TIME){
+                $this->deleteCurrentTask();
             }
         }
     }
@@ -114,7 +118,6 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
             $this->setchannel['channel'] = $match['channel'];
             $task = $this->prepareTask($match['channel'], $tag);
             $this->addTask($task);
-            //$this->sendMessage(self::MTPROXYBOT, '/myproxies');
         }
         if($this->assertText('/tasks')){
             if(!empty($this->stack)) {
@@ -123,7 +126,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
                 $this->sendMessage($this->from_id, 'Tasks is empty...');
             }
         }
-        if($this->assertText('/wipe')){
+        if($this->assertText('/clear')){
             $this->stack = [];
             $this->sendMessage($this->from_id, 'Tasks is clear...');
         }
@@ -246,6 +249,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
 
     private function searchProxy($update)
     {
+        $this->updateCurrentTaskTime();
         if(strpos($update['message']['message'], 'Here is the list of all proxies you created:', 0)===0){
             $bytes = $this->findButtonWithText($update, $this->getCurrentTaskTag());
             if($bytes) {
@@ -295,6 +299,24 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
     }
 
     /**
+     * Возвращает разность, когда последний раз был обновлен таск
+     *
+     * @return int
+     */
+    private function getCurrentTaskTimeDiff(): int
+    {
+        return time() - $this->stack[key($this->stack)]['updated'];
+    }
+
+    /**
+     * Обновляем метку, что все еще работаем над текущим таском.
+     */
+    private function updateCurrentTaskTime()
+    {
+        $this->stack[key($this->stack)]['updated'] = time();
+    }
+
+    /**
      *
      *
      * @param $item
@@ -304,6 +326,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
         if($this->isValidTask($item)){
             $arr = json_decode($item, true);
             $arr['step'] = 0;
+            $arr['updated'] = time();
             $this->stack[] = $arr;
         }
     }
@@ -399,6 +422,7 @@ class MTProxyAdmin extends \danog\MadelineProto\EventHandler
     private function incStep()
     {
         $this->stack[key($this->stack)]['step']++;
+        $this->updateCurrentTaskTime();
     }
 
     private function deleteCurrentTask()
