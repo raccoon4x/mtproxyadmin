@@ -1,12 +1,9 @@
 # mtproxyadmin
 
 
-Admin commands:
+## Admin commands:
 
-/promo @digitalresistanceproxychannel 
-
-/promo @digitalresistanceproxychannel <optional TAG 32-hex>
-
-/tasks
-
-/wipe
+* `/promo @digitalresistanceproxychannel` - Set promo to default channel 
+* `/promo @digitalresistanceproxychannel <optional TAG 32-hex>` - Set promo channel by 32-hex identificator
+* `/tasks` - Show all tasks
+* `/clear` - Clear all tasks
